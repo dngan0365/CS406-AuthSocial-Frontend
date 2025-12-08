@@ -18,8 +18,8 @@ return (
 <html lang="vi">
   <body className={`${inter.className} bg-gray-100`}>
     <Header />
-    <main className="min-h-screen pt-6 pb-12 flex justify-center">
-      <div className="w-full max-w-3xl px-4">{children}</div>
+    <main className="min-h-screen pt-4 pb-6 flex justify-center">
+      <div className="w-full max-w-4xl px-2">{children}</div>
     </main>
     </body>
 </html>

@@ -1,10 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase, signOut } from '@/lib/supabase';
-import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, getUnreadCount } from '@/lib/api';
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, getUnreadCount, getProfile, getMediaUrl } from '@/lib/api';
 import { Bell, LogOut, User, Menu, Heart, MessageCircle, X, LayoutGrid, List } from 'lucide-react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type { Notification } from '@/types';
@@ -16,6 +18,7 @@ export default function Header() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [profileData, setProfileData] = useState<any>(null);
   
   const notifRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -25,13 +28,21 @@ export default function Header() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
-      if (user) loadNotifications();
+      if (user) {
+        loadNotifications();
+        loadProfile(user.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
-        if (session?.user) loadNotifications();
+        if (session?.user) {
+          loadNotifications();
+          loadProfile(session.user.id);
+        } else {
+          setProfileData(null);
+        }
       }
     );
 
@@ -53,6 +64,16 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const loadProfile = async (userId: string) => {
+    try {
+      const data = await getProfile(userId);
+      setProfileData(data);
+      
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
+
   const loadNotifications = async () => {
     try {
       setLoading(true);
@@ -70,6 +91,7 @@ export default function Header() {
 
   const handleSignOut = async () => {
     await signOut();
+    setProfileData(null);
     router.push('/login');
   };
 
@@ -128,16 +150,41 @@ export default function Header() {
     return date.toLocaleDateString('vi-VN', { month: 'short', day: 'numeric' });
   };
 
+  // Helper function to get display info for notification
+  const getNotificationDisplayInfo = (notification: Notification) => {
+    if (notification.actor) {
+      return {
+        avatarUrl: notification.actor.avatar_url,
+        displayName: notification.actor.display_name || notification.actor.username,
+        initial: notification.actor.username?.[0]?.toUpperCase() || 'U'
+      };
+    }
+    // If actor is null, use current user's info
+    return {
+      avatarUrl: profileData?.avatar_url,
+      displayName: profileData?.display_name || profileData?.username || user?.email?.split('@')[0],
+      initial: user?.email?.[0]?.toUpperCase() || 'U'
+    };
+  };
+
   const isGalleryView = pathname === '/gallery';
 
   return (
-    <header className="bg-white/95 backdrop-blur-md border-b sticky top-0 z-50 shadow-sm">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+    <header className="bg-white/90 sticky top-0 z-50 shadow-sm">
+      <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between">
         
         {/* Logo */}
-        <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent tracking-tight hover:opacity-80 transition">
-          SocialApp
-        </Link>
+        <div className="flex items-center gap-2">
+          <Image
+            src="/cslogo.png"
+            alt="SocialApp Logo"
+            width={40}
+            height={40}
+          />
+          <Link href="/" className="text-2xl font-bold bg-clip-text text-blue-800 tracking-tight hover:opacity-80 transition">
+            AuthSocial
+          </Link>
+        </div>
 
         {/* View Mode Toggle - Desktop */}
         <div className="hidden md:flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
@@ -187,8 +234,8 @@ export default function Header() {
                 </button>
 
                 {notifOpen && (
-                  <div className="absolute right-0 mt-2 w-96 bg-white shadow-xl rounded-xl border overflow-hidden animate-fadeIn">
-                    <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                  <div className="absolute right-0 mt-2 w-96 bg-white shadow-xl rounded-lg overflow-hidden animate-fadeIn">
+                    <div className="px-4 py-2 bg-gray-100 flex items-center justify-between">
                       <h3 className="font-bold text-lg">Thông báo</h3>
                       {unreadCount > 0 && (
                         <button
@@ -200,57 +247,71 @@ export default function Header() {
                       )}
                     </div>
 
-                    <div className="max-h-[500px] overflow-y-auto">
+                    <div className="max-h-[600px] overflow-y-auto">
                       {loading ? (
                         <div className="flex justify-center py-8">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                          <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent"></div>
                         </div>
                       ) : notifications.length === 0 ? (
                         <div className="text-center py-12 text-gray-500">
-                          <Bell size={48} className="mx-auto mb-3 opacity-30" />
+                          <Bell size={44} className="mx-auto mb-3 opacity-30" />
                           <p>Chưa có thông báo nào</p>
                         </div>
                       ) : (
-                        notifications.map((notification) => (
-                          <button
-                            key={notification.id}
-                            onClick={() => handleNotificationClick(notification)}
-                            className={`w-full text-left p-4 hover:bg-gray-50 transition border-b last:border-b-0 ${
-                              !notification.is_read ? 'bg-blue-50/50' : ''
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 text-sm">
-                                {notification.actor?.username?.[0]?.toUpperCase() || 'U'}
-                              </div>
-
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  {getIcon(notification.type)}
-                                  <p className="font-semibold text-sm truncate">
-                                    {notification.actor?.display_name || notification.actor?.username}
-                                  </p>
-                                  <span className="text-xs text-gray-500 ml-auto flex-shrink-0">
-                                    {formatDate(notification.created_at)}
-                                  </span>
+                        notifications.map((notification) => {
+                          const displayInfo = getNotificationDisplayInfo(notification);
+                          
+                          return (
+                            <button
+                              key={notification.id}
+                              onClick={() => handleNotificationClick(notification)}
+                              className={`w-full text-left p-2 hover:bg-gray-50 transition ${
+                                !notification.is_read ? 'bg-blue-50/50' : ''
+                              }`}
+                            >
+                              <div className="flex items-start gap-2">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                  {displayInfo.avatarUrl ? (
+                                    <img
+                                      src={displayInfo.avatarUrl}
+                                      alt="Avatar"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-blue-800 flex items-center justify-center text-white font-bold text-sm">
+                                      {displayInfo.initial}
+                                    </div>
+                                  )}
                                 </div>
-                                
-                                <p className="text-sm text-gray-600 line-clamp-2">
-                                  {notification.body || `đã ${notification.type === 'like' ? 'thích' : notification.type === 'comment' ? 'bình luận' : 'theo dõi'} bài viết của bạn`}
-                                </p>
-                              </div>
 
-                              {!notification.is_read && (
-                                <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1"></div>
-                              )}
-                            </div>
-                          </button>
-                        ))
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    {getIcon(notification.type)}
+                                    <p className="font-semibold text-sm truncate">
+                                      {displayInfo.displayName}
+                                    </p>
+                                    <span className="text-xs text-gray-500 ml-auto flex-shrink-0">
+                                      {formatDate(notification.created_at)}
+                                    </span>
+                                  </div>
+                                  
+                                  <p className="text-xs text-gray-600 line-clamp-2">
+                                    {notification.body || `đã ${notification.type === 'like' ? 'thích' : notification.type === 'comment' ? 'bình luận' : 'theo dõi'} bài viết của bạn`}
+                                  </p>
+                                </div>
+
+                                {!notification.is_read && (
+                                  <div className="w-2 h-2 bg-blue-800 rounded-full flex-shrink-0 mt-1"></div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })
                       )}
                     </div>
 
                     {notifications.length > 0 && (
-                      <div className="px-4 py-3 border-t bg-gray-50">
+                      <div className="px-4 py-3 bg-gray-100">
                         <button
                           onClick={() => {
                             setNotifOpen(false);
@@ -273,14 +334,24 @@ export default function Header() {
                     setMenuOpen(!menuOpen);
                     setNotifOpen(false);
                   }}
-                  className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold hover:shadow-lg transition text-sm"
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold hover:shadow-lg transition text-sm overflow-hidden border-2 border-transparent hover:border-blue-400"
                 >
-                  {user.email?.[0]?.toUpperCase() || 'U'}
+                  {profileData?.avatar_url ? (
+                    <img
+                      src={profileData.avatar_url}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-blue-800 flex items-center justify-center">
+                      {user.email?.[0]?.toUpperCase() || 'U'}
+                    </div>
+                  )}
                 </button>
 
                 {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white shadow-xl rounded-xl border overflow-hidden animate-fadeIn">
-                    <div className="px-4 py-3 border-b bg-gray-50">
+                  <div className="absolute right-0 mt-2 w-56 bg-white shadow-xl rounded-lg overflow-hidden animate-fadeIn">
+                    <div className="px-4 py-3 bg-gray-100">
                       <p className="font-semibold text-sm truncate">{user.email}</p>
                       <p className="text-xs text-gray-500 truncate">Tài khoản của bạn</p>
                     </div>
@@ -318,7 +389,7 @@ export default function Header() {
 
               <Link
                 href="/signup"
-                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:shadow-lg transition font-medium"
+                className="px-5 py-2 bg-blue-800 text-white rounded-lg hover:shadow-lg transition font-medium"
               >
                 Đăng ký
               </Link>
@@ -337,7 +408,7 @@ export default function Header() {
 
       {/* Mobile menu */}
       {menuOpen && (
-        <div className="md:hidden bg-white border-t shadow-lg animate-fadeIn">
+        <div className="md:hidden bg-white shadow-lg animate-fadeIn">
           <div className="px-4 py-3 space-y-1">
             {/* View Mode Toggle - Mobile */}
             <div className="flex items-center gap-2 mb-3 bg-gray-100 p-1 rounded-lg">
@@ -369,8 +440,21 @@ export default function Header() {
 
             {user ? (
               <>
-                <div className="px-3 py-2 mb-2 bg-gray-50 rounded-lg">
-                  <p className="font-semibold text-sm truncate">{user.email}</p>
+                <div className="px-3 py-2 mb-2 bg-gray-50 rounded-lg flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {profileData?.avatar_url ? (
+                      <img
+                        src={profileData.avatar_url}
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+                        {user.email?.[0]?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                  </div>
+                  <p className="font-semibold text-sm truncate flex-1">{user.email}</p>
                 </div>
 
                 <Link

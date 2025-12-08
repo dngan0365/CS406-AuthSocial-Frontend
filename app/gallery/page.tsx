@@ -1,26 +1,54 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getPostsWithMedia } from '@/lib/api';
+import { getToken } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import type { Post, Media } from '@/types';
 import { Loader, Image as ImageIcon, Heart, MessageCircle, X, Play } from 'lucide-react';
 
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
 export default function GalleryPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
   const [user, setUser] = useState<any>(null);
   const [selectedMedia, setSelectedMedia] = useState<{ media: Media; post: Post } | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const router = useRouter();
+  const observerTarget = useRef(null);
+
+  const POSTS_PER_PAGE = 50;
 
   useEffect(() => {
     checkAuth();
-    loadPosts();
+    loadPosts(1);
   }, []);
+
+  // Intersection Observer để phát hiện khi scroll đến cuối
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMorePosts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loadingMore, loading, page]);
 
   const checkAuth = async () => {
     const {
@@ -29,30 +57,58 @@ export default function GalleryPage() {
     setUser(user);
   };
 
-  const loadPosts = async (pageNum: number = 1) => {
+  const loadPosts = async (pageNum: number) => {
     try {
-      setLoading(true);
-      const data = await getPostsWithMedia(pageNum, 50);
+      const token = await getToken();
+      const url = `${backendUrl}/posts?page=${pageNum}&limit=${POSTS_PER_PAGE}`;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(url, { 
+        headers,
+        credentials: "include", 
+      });
+      
+      if (!res.ok) throw new Error("Failed to fetch posts");
+      const data = await res.json();
+      
+      // Chỉ giữ các bài viết có media
+      const postsWithMedia = data.filter((post: Post) => post.media && post.media.length > 0);
+      
+      console.log(`Loaded ${postsWithMedia.length} posts with media for page ${pageNum}`);
       
       if (pageNum === 1) {
-        setPosts(data);
+        setPosts(postsWithMedia);
       } else {
-        setPosts(prev => [...prev, ...data]);
+        setPosts(prev => [...prev, ...postsWithMedia]);
       }
       
-      setHasMore(data.length === 50);
+      // Nếu số bài viết trả về ít hơn limit, nghĩa là đã hết
+      if (data.length < POSTS_PER_PAGE) {
+        setHasMore(false);
+      }
     } catch (error) {
       console.error('Error loading posts:', error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  const loadMore = () => {
+  const loadMorePosts = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
     const nextPage = page + 1;
     setPage(nextPage);
     loadPosts(nextPage);
-  };
+  }, [page, loadingMore, hasMore]);
 
   const openMediaModal = (media: Media, post: Post) => {
     setSelectedMedia({ media, post });
@@ -72,7 +128,7 @@ export default function GalleryPage() {
     }
   });
 
-  // Masonry columns - ĐÚNG VỊ TRÍ: sau khi allMedia đã có dữ liệu
+  // Masonry columns
   const COLUMNS = 4;
   const columns: Array<Array<{ media: Media; post: Post }>> = Array.from(
     { length: COLUMNS },
@@ -83,7 +139,7 @@ export default function GalleryPage() {
     columns[index % COLUMNS].push(item);
   });
 
-  if (loading && page === 1) {
+  if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
         <Loader className="animate-spin text-blue-600" size={48} />
@@ -95,7 +151,7 @@ export default function GalleryPage() {
     <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Thư viện ảnh & video</h1>
+        <h1 className="text-3xl font-bold text-blue-800 mb-2">Thư viện ảnh & video</h1>
         <p className="text-gray-600">
           Khám phá {allMedia.length} media từ {posts.length} bài viết
         </p>
@@ -176,25 +232,19 @@ export default function GalleryPage() {
             ))}
           </div>
 
-          {/* Load More Button */}
-          {hasMore && (
-            <div className="mt-8 text-center">
-              <button
-                onClick={loadMore}
-                disabled={loading}
-                className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader className="animate-spin" size={20} />
-                    Đang tải...
-                  </span>
-                ) : (
-                  'Tải thêm'
-                )}
-              </button>
-            </div>
-          )}
+          {/* Infinite Scroll Trigger Point */}
+          <div ref={observerTarget} className="py-8">
+            {loadingMore && (
+              <div className="flex justify-center">
+                <Loader size={32} className="animate-spin text-blue-600" />
+              </div>
+            )}
+            {!hasMore && allMedia.length > 0 && (
+              <div className="text-center text-gray-500 text-sm">
+                Đã hiển thị tất cả media
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -356,6 +406,5 @@ export default function GalleryPage() {
 
 // Helper function to get media URL
 function getMediaUrl(storagePath: string): string {
-  // Fallback if URL is not provided
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${process.env.NEXT_PUBLIC_STORAGE_BUCKET}/${storagePath}`;
 }

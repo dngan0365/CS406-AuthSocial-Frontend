@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getNotifications, markNotificationAsRead } from '@/lib/api';
+import { getNotifications, markNotificationAsRead, getProfile } from '@/lib/api';
 import type { Notification } from '@/types';
 import { Heart, MessageCircle, User } from 'lucide-react';
 
@@ -14,10 +14,33 @@ export default function NotificationList() {
     loadNotifications();
   }, []);
 
+  // ✅ Load notifications and fetch actor profiles using getProfile
   const loadNotifications = async () => {
     try {
       const data = await getNotifications();
-      setNotifications(data);
+      
+      // Fetch actor profiles using getProfile for notifications that have actor_id
+      const notificationsWithActors = await Promise.all(
+        data.map(async (notif: Notification) => {
+          // If notification has actor_id but no actor data, fetch it
+          if (notif.actor_id && !notif.actor) {
+            try {
+              const actorProfile = await getProfile(notif.actor_id);
+              return {
+                ...notif,
+                actor: actorProfile // ✅ Set actor directly from getProfile
+              };
+            } catch (error) {
+              console.error(`Failed to fetch actor profile for ${notif.actor_id}:`, error);
+              return notif;
+            }
+          }
+          // If actor data already exists, keep it
+          return notif;
+        })
+      );
+      
+      setNotifications(notificationsWithActors);
     } catch (error) {
       console.error('Error loading notifications:', error);
     } finally {
@@ -39,7 +62,7 @@ export default function NotificationList() {
   const getIcon = (type: string) => {
     switch (type) {
       case 'like':
-        return <Heart size={20} className="text-red-500" />;
+        return <Heart size={20} className="text-red-500" fill="currentColor" />;
       case 'comment':
         return <MessageCircle size={20} className="text-blue-500" />;
       case 'follow':
@@ -62,6 +85,26 @@ export default function NotificationList() {
     if (hours < 24) return `${hours} giờ trước`;
     if (days < 7) return `${days} ngày trước`;
     return date.toLocaleDateString('vi-VN');
+  };
+
+  // ✅ Get actor display name with fallback
+  const getActorName = (notification: Notification) => {
+    return notification.actor?.display_name || 
+           notification.actor?.username || 
+           'Người dùng';
+  };
+
+  // ✅ Get actor avatar initial with fallback
+  const getActorInitial = (notification: Notification) => {
+    const name = notification.actor?.username || 
+                 notification.actor?.display_name || 
+                 'U';
+    return name[0]?.toUpperCase() || 'U';
+  };
+
+  // ✅ Get actor avatar URL
+  const getActorAvatar = (notification: Notification) => {
+    return notification.actor?.avatar_url;
   };
 
   if (loading) {
@@ -92,20 +135,32 @@ export default function NotificationList() {
           }`}
         >
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
-              {notification.actor?.username?.[0]?.toUpperCase() || 'U'}
+            {/* ✅ Actor Avatar with image support */}
+            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border-2 border-gray-200">
+              {getActorAvatar(notification) ? (
+                <img
+                  src={getActorAvatar(notification)}
+                  alt="Actor"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+                  {getActorInitial(notification)}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 {getIcon(notification.type)}
+                {/* ✅ Actor Name with fallback */}
                 <p className="font-medium text-sm">
-                  {notification.actor?.display_name || notification.actor?.username}
+                  {getActorName(notification)}
                 </p>
               </div>
               
               <p className="text-sm text-gray-600 mb-1">
-                {notification.body || `đã ${notification.type} bài viết của bạn`}
+                {notification.body || `đã ${notification.type === 'like' ? 'thích' : notification.type === 'comment' ? 'bình luận' : 'theo dõi'} bài viết của bạn`}
               </p>
               
               <p className="text-xs text-gray-500">

@@ -1,25 +1,55 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getPosts } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
+import { getToken } from '@/lib/api';
 import PostForm from '@/components/PostForm';
 import PostCard from '@/components/PostCard';
 import type { Post } from '@/types';
 import { Loader } from 'lucide-react';
 
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
 export default function HomePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
   const [user, setUser] = useState<any>(null);
   const router = useRouter();
+  const observerTarget = useRef(null);
+
+  const POSTS_PER_PAGE = 10;
 
   useEffect(() => {
     checkAuth();
-    loadPosts();
+    loadPosts(1);
   }, []);
+
+  // Intersection Observer để phát hiện khi scroll đến cuối
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMorePosts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loadingMore, loading, page]);
 
   const checkAuth = async () => {
     const {
@@ -28,16 +58,75 @@ export default function HomePage() {
     setUser(user);
   };
 
-  const loadPosts = async () => {
+  const loadPosts = async (pageNum: number) => {
     try {
-      const data = await getPosts();
-      setPosts(data);
+      const token = await getToken();
+      const url = `${backendUrl}/posts?page=${pageNum}&limit=${POSTS_PER_PAGE}`;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(url, { 
+        headers,
+        credentials: "include", 
+      });
+      
+      if (!res.ok) throw new Error("Failed to fetch posts");
+      const data = await res.json();
+      
+      console.log(`Loaded ${data.length} posts for page ${pageNum}`);
+      
+      if (pageNum === 1) {
+        setPosts(data);
+      } else {
+        setPosts(prev => [...prev, ...data]);
+      }
+      
+      // Nếu số bài viết trả về ít hơn limit, nghĩa là đã hết
+      if (data.length < POSTS_PER_PAGE) {
+        setHasMore(false);
+      }
     } catch (error) {
       console.error('Error loading posts:', error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
+
+  const loadMorePosts = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    setPage(nextPage);
+    loadPosts(nextPage);
+  }, [page, loadingMore, hasMore]);
+
+  // Hàm này chỉ dùng khi TẠO POST MỚI
+  const handlePostCreated = () => {
+    // Reset và tải lại từ đầu
+    setPage(1);
+    setHasMore(true);
+    setLoading(true);
+    loadPosts(1);
+  };
+
+  // Hàm mới: Cập nhật post locally mà KHÔNG reload
+  const handlePostUpdate = useCallback((postId: string, likeCount: number, isLiked: boolean) => {
+    setPosts(prevPosts => 
+      prevPosts.map(post => 
+        post.id === postId 
+          ? { ...post, like_count: likeCount, is_liked: isLiked }
+          : post
+      )
+    );
+  }, []);
 
   if (loading) {
     return (
@@ -54,7 +143,7 @@ export default function HomePage() {
           <h2 className="text-xl font-bold mb-4 text-gray-800">
             Tạo bài viết mới
           </h2>
-          <PostForm onPostCreated={loadPosts} />
+          <PostForm onPostCreated={handlePostCreated} />
         </div>
       )}
 
@@ -81,9 +170,31 @@ export default function HomePage() {
             Chưa có bài viết nào. Hãy là người đầu tiên chia sẻ!
           </div>
         ) : (
-          posts.map((post) => (
-            <PostCard key={post.id} post={post} onLikeChange={loadPosts} />
-          ))
+          <>
+            {posts.map((post) => (
+              <PostCard 
+                key={post.id} 
+                post={post} 
+                onLikeChange={(postId, likeCount, isLiked) => 
+                  handlePostUpdate(postId, likeCount, isLiked)
+                }
+              />
+            ))}
+            
+            {/* Điểm đánh dấu để Intersection Observer theo dõi */}
+            <div ref={observerTarget} className="py-4">
+              {loadingMore && (
+                <div className="flex justify-center">
+                  <Loader size={32} className="animate-spin text-blue-600" />
+                </div>
+              )}
+              {!hasMore && posts.length > 0 && (
+                <div className="text-center text-gray-500 text-sm py-4">
+                  Đã hiển thị tất cả bài viết
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

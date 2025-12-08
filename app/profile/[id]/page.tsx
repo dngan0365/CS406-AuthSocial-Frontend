@@ -1,57 +1,127 @@
 'use client';
 
-import { useEffect, useState, ChangeEvent } from 'react';
+import { useEffect, useState, useRef, useCallback, ChangeEvent } from 'react';
 import { useParams } from 'next/navigation';
-import { getProfile, getPosts, updateProfile, uploadAvatar } from '@/lib/api';
+import { getProfile, updateProfile, uploadAvatar, getToken } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import PostCard from '@/components/PostCard';
 import type { Profile, Post } from '@/types';
 import { Edit2, Loader, User, Camera } from 'lucide-react';
+
+const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export default function ProfilePage() {
   const params = useParams();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
   const [isOwner, setIsOwner] = useState(false);
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const observerTarget = useRef(null);
+
+  const POSTS_PER_PAGE = 10;
 
   useEffect(() => {
     loadProfile();
   }, [params.id]);
 
+  // Intersection Observer để phát hiện khi scroll đến cuối
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadMorePosts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current);
+      }
+    };
+  }, [hasMore, loadingMore, loading, page]);
+
   const loadProfile = async () => {
     setLoading(true);
+    setPage(1);
+    setHasMore(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       setIsOwner(user?.id === params.id);
-      const viewingOwnProfile = user?.id === params.id;
-      
-      console.log('🔍 PROFILE PAGE DEBUG:');
-      console.log('  Current user:', user?.id);
-      console.log('  Profile ID:', params.id);
-      console.log('  Is own profile:', viewingOwnProfile);
       
       const profileData = await getProfile(params.id as string);
       setProfile(profileData);
       setDisplayName(profileData.display_name || '');
 
-      const postsData = await getPosts(params.id as string);
-      console.log('📊 POSTS RECEIVED:', postsData.length);
-      console.log('  Sample posts:');
-      postsData.slice(0, 3).forEach((p: Post) => {
-        console.log(`    - ${p.id.substring(0, 8)}: status=${p.status}, private=${p.is_private}`);
-      });
-      setPosts(postsData);
+      // Load posts với pagination
+      await loadPosts(1);
     } catch (error) {
       console.error('Error loading profile:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const loadPosts = async (pageNum: number) => {
+    try {
+      const token = await getToken();
+      const url = `${backendUrl}/posts?owner_id=${params.id}&page=${pageNum}&limit=${POSTS_PER_PAGE}`;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(url, { 
+        headers,
+        credentials: "include", 
+      });
+      
+      if (!res.ok) throw new Error("Failed to fetch posts");
+      const data = await res.json();
+      
+      console.log(`Loaded ${data.length} posts for page ${pageNum}`);
+      
+      if (pageNum === 1) {
+        setPosts(data);
+      } else {
+        setPosts(prev => [...prev, ...data]);
+      }
+      
+      // Nếu số bài viết trả về ít hơn limit, nghĩa là đã hết
+      if (data.length < POSTS_PER_PAGE) {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error('Error loading posts:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMorePosts = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    setPage(nextPage);
+    loadPosts(nextPage);
+  }, [page, loadingMore, hasMore]);
 
   const handleUpdateProfile = async () => {
     try {
@@ -82,6 +152,17 @@ export default function ProfilePage() {
     }
   };
 
+  // Hàm mới: Cập nhật post locally mà KHÔNG reload
+  const handlePostUpdate = useCallback((postId: string, likeCount: number, isLiked: boolean) => {
+    setPosts(prevPosts => 
+      prevPosts.map(post => 
+        post.id === postId 
+          ? { ...post, like_count: likeCount, is_liked: isLiked }
+          : post
+      )
+    );
+  }, []);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -104,14 +185,23 @@ export default function ProfilePage() {
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <div className="flex items-start gap-4">
           <div className="relative w-24 h-24 flex-shrink-0">
-            <img
-              src={avatarPreview || profile.avatar_url || '/default-avatar.png'}
-              alt="Avatar"
-              className="w-24 h-24 rounded-full object-cover"
-            />
+            {
+              profile?.avatar_url ? (
+                <img
+                  src={avatarPreview || profile.avatar_url || '/default-avatar.png'}
+                  alt="Avatar"
+                  className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+              />
+              ) : (
+                <div className="w-full h-full rounded-full bg-blue-800 text-xl font-bold text-white flex items-center justify-center">
+                  {profile?.display_name?.[0]?.toUpperCase() || 'U'}
+                </div>
+              )
+            }
+
             {isOwner && (
-              <label className="absolute bottom-0 right-0 bg-white p-1 rounded-full cursor-pointer border">
-                <Camera size={16} className="text-gray-600" />
+              <label className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full cursor-pointer shadow-lg hover:bg-blue-700 transition">
+                <Camera size={16} className="text-white" />
                 <input
                   type="file"
                   accept="image/*"
@@ -146,7 +236,10 @@ export default function ProfilePage() {
                     Lưu
                   </button>
                   <button
-                    onClick={() => setEditing(false)}
+                    onClick={() => {
+                      setEditing(false);
+                      setDisplayName(profile?.display_name || '');
+                    }}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
                   >
                     Hủy
@@ -163,6 +256,7 @@ export default function ProfilePage() {
                     <button
                       onClick={() => setEditing(true)}
                       className="p-2 hover:bg-gray-100 rounded-full transition"
+                      title="Chỉnh sửa profile"
                     >
                       <Edit2 size={16} className="text-gray-600" />
                     </button>
@@ -187,12 +281,35 @@ export default function ProfilePage() {
         <div className="space-y-4">
           {posts.length === 0 ? (
             <div className="text-center py-12 text-gray-500 bg-white rounded-lg">
-              Chưa có bài viết nào
+              <User size={48} className="mx-auto mb-3 opacity-30" />
+              <p>Chưa có bài viết nào</p>
             </div>
           ) : (
-            posts.map((post) => (
-              <PostCard key={post.id} post={post} onLikeChange={loadProfile} />
-            ))
+            <>
+              {posts.map((post) => (
+                <PostCard 
+                  key={post.id} 
+                  post={post} 
+                  onLikeChange={(postId, likeCount, isLiked) => 
+                    handlePostUpdate(postId, likeCount, isLiked)
+                  }
+                />
+              ))}
+              
+              {/* Điểm đánh dấu để Intersection Observer theo dõi */}
+              <div ref={observerTarget} className="py-4">
+                {loadingMore && (
+                  <div className="flex justify-center">
+                    <Loader size={32} className="animate-spin text-blue-600" />
+                  </div>
+                )}
+                {!hasMore && posts.length > 0 && (
+                  <div className="text-center text-gray-500 text-sm py-4">
+                    Đã hiển thị tất cả bài viết
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>

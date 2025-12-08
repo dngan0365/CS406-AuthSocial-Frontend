@@ -9,7 +9,7 @@ import type { Post } from '@/types';
 
 interface PostCardProps {
   post: Post;
-  onLikeChange?: () => void;
+  onLikeChange?: (postId: string, likeCount: number, isLiked: boolean) => void;
 }
 
 export default function PostCard({ post, onLikeChange }: PostCardProps) {
@@ -36,18 +36,31 @@ export default function PostCard({ post, onLikeChange }: PostCardProps) {
     setLoading(true);
 
     try {
+      const newIsLiked = !isLiked;
+      const newLikeCount = newIsLiked 
+        ? likeCount + 1 
+        : Math.max(likeCount - 1, 0);
+
+      // Optimistic update - cập nhật UI ngay lập tức
+      setIsLiked(newIsLiked);
+      setLikeCount(newLikeCount);
+
+      // Gọi API
       if (isLiked) {
         await unlikePost(post.id);
-        setLikeCount(prev => Math.max(prev - 1, 0));
-        setIsLiked(false);
       } else {
         await likePost(post.id);
-        setLikeCount(prev => prev + 1);
-        setIsLiked(true);
       }
-      onLikeChange?.();
+
+      // Thông báo parent component để update state
+      onLikeChange?.(post.id, newLikeCount, newIsLiked);
+      
     } catch (error) {
       console.error('Error toggling like:', error);
+      
+      // Rollback nếu có lỗi
+      setIsLiked(!isLiked);
+      setLikeCount(likeCount);
     } finally {
       setLoading(false);
     }
@@ -253,11 +266,11 @@ export default function PostCard({ post, onLikeChange }: PostCardProps) {
             mounted && isLiked 
               ? 'text-red-500 hover:bg-red-50' 
               : 'text-gray-600 hover:bg-gray-100'
-          }`}
+          } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <Heart
             size={20}
-            className={mounted && isLiked ? 'fill-red-500' : ''}
+            className={`transition-all ${mounted && isLiked ? 'fill-red-500 scale-110' : ''}`}
           />
           <span className="font-medium text-sm">Thích</span>
         </button>

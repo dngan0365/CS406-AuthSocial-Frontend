@@ -104,14 +104,14 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
   const maxChars = 5000;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="p-4">
+    <div className="bg-white rounded-sm shadow-sm border border-gray-200 overflow-hidden">
+      <div className="p-2">
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Bạn đang nghĩ gì? 💭"
-          className="w-full p-3 border-0 rounded-lg resize-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400"
-          rows={3}
+          className="w-full p-2 border-0 rounded-sm resize-none focus:outline-none focus:ring-0 text-gray-800 placeholder-gray-400"
+          rows={1}
           disabled={posting}
           maxLength={maxChars}
         />
@@ -133,26 +133,26 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
 
         {/* Media preview grid */}
         {uploadedMedia.length > 0 && (
-          <div className={`mt-4 grid gap-3 ${
-            uploadedMedia.length === 1 ? 'grid-cols-1' :
+          <div className={`mt-2 grid gap-3 ${
+            uploadedMedia.length === 1 ? 'grid-cols-2' :
             uploadedMedia.length === 2 ? 'grid-cols-2' :
             uploadedMedia.length === 3 ? 'grid-cols-3' :
-            'grid-cols-2'
+            'grid-cols-4'
           }`}>
             {uploadedMedia.map((media, idx) => (
               <div key={idx} className="relative group">
-                <div className={`rounded-lg overflow-hidden border-2 border-gray-200 ${
+                <div className={`rounded-sm overflow-hidden border-2 border-gray-200 ${
                   uploadedMedia.length === 1 ? 'aspect-video' : 'aspect-square'
                 }`}>
                   {media.media_type === 'video' ? (
-                    <div className="w-full h-full relative bg-gradient-to-br from-purple-100 to-blue-100">
+                    <div className="w-full h-full relative bg-blue-800">
                       <video
                         src={media.url}
                         className="w-full h-full object-cover"
                         muted
                       />
                       <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20">
-                        <Video size={40} className="text-white opacity-80" />
+                        <Video size={20} className="text-white opacity-80" />
                       </div>
                     </div>
                   ) : (
@@ -169,7 +169,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
                   className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-600 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed group-hover:scale-110 transform"
                   title="Xóa"
                 >
-                  <X size={16} />
+                  <X size={12} />
                 </button>
               </div>
             ))}
@@ -178,9 +178,9 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
 
         {/* Upload progress indicator */}
         {uploading && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-sm">
             <div className="flex items-center gap-3">
-              <Loader size={20} className="animate-spin text-blue-600" />
+              <Loader size={10} className="animate-spin text-blue-600" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-blue-900">Đang tải lên...</p>
                 <p className="text-xs text-blue-700">Vui lòng đợi trong giây lát</p>
@@ -191,7 +191,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
       </div>
 
       {/* Action bar */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+      <div className="px-2 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-1">
           <label className={`cursor-pointer p-2.5 hover:bg-gray-200 rounded-lg transition flex items-center gap-2 ${
             uploading || posting || uploadedMedia.length >= 4 ? 'opacity-50 pointer-events-none' : ''
@@ -233,7 +233,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
         <button
           onClick={handleSubmit}
           disabled={posting || uploading || (!content.trim() && uploadedMedia.length === 0)}
-          className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex items-center gap-2 font-semibold shadow-sm hover:shadow-md"
+          className="px-4 py-2 bg-blue-800 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex items-center gap-2 font-semibold shadow-sm hover:shadow-md"
         >
           {posting ? (
             <>

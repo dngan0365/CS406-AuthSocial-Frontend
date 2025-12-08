@@ -5,7 +5,7 @@ const mediaUrl = process.env.NEXT_PUBLIC_MEDIA_URL!;
 import { Post } from '@/types';
 import { supabase } from './supabase';
 
-async function getToken() {
+export async function getToken() {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;  // ✅ Return null instead of ""
 }
@@ -37,17 +37,29 @@ export interface PostResponse {
   is_liked: boolean;
 }
 
-export const getPosts = async (ownerId?: string) => {
+export const getPosts = async (params?: string | { owner_id?: string; page?: number; limit?: number }) => {
   const token = await getToken();
-  const url = ownerId
-    ? `${backendUrl}/posts?owner_id=${ownerId}`
-    : `${backendUrl}/posts`;
+  
+  let queryString = '';
+  
+  if (typeof params === 'string') {
+    // Nếu params là string (như "?page=1&limit=10")
+    queryString = params.startsWith('?') ? params : `?${params}`;
+  } else if (params) {
+    // Nếu params là object
+    const queryParams = new URLSearchParams();
+    if (params.owner_id) queryParams.append('owner_id', params.owner_id);
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    queryString = `?${queryParams.toString()}`;
+  }
+
+  const url = `${backendUrl}/posts${queryString}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   
-  // ✅ Only add Authorization header if token exists
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
