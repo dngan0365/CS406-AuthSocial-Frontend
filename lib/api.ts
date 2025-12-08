@@ -5,11 +5,9 @@ const mediaUrl = process.env.NEXT_PUBLIC_MEDIA_URL!;
 import { Post } from '@/types';
 import { supabase } from './supabase';
 
-
-
 async function getToken() {
   const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? "";
+  return data.session?.access_token ?? null;  // ✅ Return null instead of ""
 }
 
 /* --------------------- POSTS --------------------- */
@@ -20,8 +18,8 @@ export interface MediaResponse {
   media_type: string;
   order: number;
   url?: string;
-  ai_perc?: number;  // Confidence score from AI detection
-  is_ai?: boolean;   // True if image is AI-generated
+  ai_perc?: number;
+  is_ai?: boolean;
 }
 
 export interface PostResponse {
@@ -33,46 +31,69 @@ export interface PostResponse {
   is_private: boolean;
   like_count: number;
   created_at: string;
-  status?: string;  // "pending" | "approved" | "rejected" | "error"
-  ai_perc?: number; // Percentage of AI images in post
+  status?: string;
+  ai_perc?: number;
   media: MediaResponse[];
   is_liked: boolean;
 }
 
 export const getPosts = async (ownerId?: string) => {
-  const token = await getToken() || NaN;
-  // console.log("Fetching posts from API, ownerId:", ownerId);
+  const token = await getToken();
   const url = ownerId
     ? `${backendUrl}/posts?owner_id=${ownerId}`
     : `${backendUrl}/posts`;
 
-  const res = await fetch(url, 
-    { 
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`},
-      credentials: "include", 
-    }
-  );
-  // console.log("Get Posts response:", res);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  
+  // ✅ Only add Authorization header if token exists
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, { 
+    headers,
+    credentials: "include", 
+  });
+  
   if (!res.ok) throw new Error("Failed to fetch posts");
   return res.json();
 };
 
 export const getPost = async (id: string) => {
-  const token = await getToken() || NaN;
+  const token = await getToken();
+  
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${backendUrl}/posts/${id}`, {
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`},
+    headers,
     credentials: "include",
   });
+  
   if (!res.ok) throw new Error("Post not found");
-  // console.log("Get Posts response:", await res.json());
   return res.json();
 };
 
 export const createPost = async (content: string, isPrivate = false) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`},
+    headers: { 
+      "Content-Type": "application/json", 
+      Authorization: `Bearer ${token}`
+    },
     credentials: "include",
     body: JSON.stringify({ content, is_private: isPrivate }),
   });
@@ -83,8 +104,13 @@ export const createPost = async (content: string, isPrivate = false) => {
 
 export const updatePost = async (id: string, content: string, isPrivate: boolean) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${id}`, {
-    method: "PATCH", // Changed from PUT to PATCH to match backend
+    method: "PATCH",
     headers: { 
       "Content-Type": "application/json", 
       Authorization: `Bearer ${token}`
@@ -100,8 +126,14 @@ export const updatePost = async (id: string, content: string, isPrivate: boolean
   
   return res.json();
 };
+
 export const deletePost = async (id: string) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${id}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
@@ -111,13 +143,17 @@ export const deletePost = async (id: string) => {
   if (!res.ok) throw new Error("Failed to delete post");
 };
 
-
 /* --------------------- MEDIA --------------------- */
 
 export const uploadMedia = async (postId: string, file: File, order = 0) => {
+  const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const formData = new FormData();
   formData.append("file", file);
-  const token = await getToken();
 
   const res = await fetch(`${backendUrl}/posts/${postId}/media`, {
     method: "POST",
@@ -129,18 +165,23 @@ export const uploadMedia = async (postId: string, file: File, order = 0) => {
   });
 
   if (!res.ok) throw new Error("Media upload failed");
-  const data = await res.json();
-
-  // `data.url` sẽ có public URL để hiển thị ngay
-  return data; // { id, post_id, storage_path, media_type, order, url }
+  return res.json();
 };
 
-export const deleteMedia = async (id: string, storagePath: string) => {
-  const res = await fetch(`${backendUrl}/media/${id}`, {
+// ✅ Fixed: Correct endpoint path
+export const deleteMedia = async (postId: string, mediaId: string) => {
+  const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
+  const res = await fetch(`${backendUrl}/posts/${postId}/media/${mediaId}`, {
     method: "DELETE",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ storage_path: storagePath }),
+    headers: { 
+      Authorization: `Bearer ${token}`,
+    },
   });
 
   if (!res.ok) throw new Error("Failed to delete media");
@@ -151,9 +192,14 @@ export const getMediaUrl = (path: string) => {
 };
 
 export const uploadMediaToStorage = async (file: File) => {
+  const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const formData = new FormData();
   formData.append('file', file);
-  const token = await getToken();
 
   const res = await fetch(`${backendUrl}/media/upload-temp`, {
     method: 'POST',
@@ -163,7 +209,7 @@ export const uploadMediaToStorage = async (file: File) => {
   });
 
   if (!res.ok) throw new Error('Failed to upload media');
-  return res.json(); // { id, url, storage_path, media_type }
+  return res.json();
 };
 
 export const linkMediaToPost = async (
@@ -173,6 +219,11 @@ export const linkMediaToPost = async (
   order: number
 ) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${postId}/media/link`, {
     method: 'POST',
     headers: {
@@ -190,23 +241,27 @@ export const linkMediaToPost = async (
   if (!res.ok) throw new Error('Failed to link media to post');
   return res.json();
 };
+
 /* --------------------- AI STATUS --------------------- */
 
 export interface AIStatusResponse {
   post_id: string;
-  status?: string;  // "pending" | "approved" | "rejected" | "error"
+  status?: string;
   ai_perc?: number;
   media: MediaResponse[];
 }
 
 export const getAIStatus = async (postId: string): Promise<AIStatusResponse> => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${postId}/ai_status`, {
     headers: { Authorization: `Bearer ${token}` },
     credentials: "include",
   });
-
-  console.log("AI Status response:", res);
 
   if (!res.ok) throw new Error("Failed to fetch AI status");
   return res.json();
@@ -216,6 +271,11 @@ export const getAIStatus = async (postId: string): Promise<AIStatusResponse> => 
 
 export const likePost = async (postId: string) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${postId}/like`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
@@ -227,6 +287,11 @@ export const likePost = async (postId: string) => {
 
 export const unlikePost = async (postId: string) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/posts/${postId}/like`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
@@ -239,6 +304,7 @@ export const unlikePost = async (postId: string) => {
 export const checkIfLiked = async (postId: string) => {
   const token = await getToken();
   if (!token) return false;
+  
   const res = await fetch(`${backendUrl}/posts/${postId}/liked`, {
     credentials: "include",
     headers: { Authorization: `Bearer ${token}` },
@@ -248,27 +314,33 @@ export const checkIfLiked = async (postId: string) => {
   return (await res.json()).liked;
 };
 
-
 /* --------------------- PROFILES --------------------- */
-// getProfile — lấy profile theo user_id
+
 export const getProfile = async (id: string) => {
   const token = await getToken();
+  
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
   const res = await fetch(`${backendUrl}/profiles/${id}`, {
     method: "GET",
     credentials: "include",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   });
+  
   if (!res.ok) throw new Error("Profile not found");
   return res.json();
 };
 
-
-// getMyProfile — lấy profile của user hiện tại (/me)
 export const getMyProfile = async () => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/profiles/me`, {
     credentials: "include",
     headers: {
@@ -280,12 +352,19 @@ export const getMyProfile = async () => {
   return res.json();
 };
 
-// Upload avatar (POST /profiles/me/avatar)
 export const updateProfile = async (displayName: string, avatarUrl?: string) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/profiles/me`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { 
+      "Content-Type": "application/json", 
+      Authorization: `Bearer ${token}` 
+    },
     credentials: "include",
     body: JSON.stringify({
       display_name: displayName,
@@ -297,9 +376,13 @@ export const updateProfile = async (displayName: string, avatarUrl?: string) => 
   return res.json();
 };
 
-// uploadAvatar — tải lên avatar cho user hiện tại (/me/avatar)
 export const uploadAvatar = async (file: File) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const formData = new FormData();
   formData.append("file", file);
 
@@ -316,12 +399,15 @@ export const uploadAvatar = async (file: File) => {
   return res.json();
 };
 
-
-
 /* --------------------- NOTIFICATIONS --------------------- */
 
 export const getNotifications = async (page = 1, limit = 20, unreadOnly = false) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const url = `${backendUrl}/notifications?page=${page}&limit=${limit}&unread_only=${unreadOnly}`;
 
   const res = await fetch(url, {
@@ -337,6 +423,11 @@ export const getNotifications = async (page = 1, limit = 20, unreadOnly = false)
 
 export const markNotificationAsRead = async (id: string) => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/notifications/${id}/read`, {
     method: "PATCH",
     credentials: "include",
@@ -351,6 +442,11 @@ export const markNotificationAsRead = async (id: string) => {
 
 export const markAllNotificationsAsRead = async () => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/notifications/mark-all-read`, {
     method: "POST",
     credentials: "include",
@@ -365,6 +461,11 @@ export const markAllNotificationsAsRead = async () => {
 
 export const getUnreadCount = async () => {
   const token = await getToken();
+  
+  if (!token) {
+    throw new Error("Authentication required");
+  }
+
   const res = await fetch(`${backendUrl}/notifications/unread-count`, {
     credentials: "include",
     headers: {
@@ -376,16 +477,23 @@ export const getUnreadCount = async () => {
   return res.json();
 };
 
-/**
- * Get all posts with media (for gallery view)
- */
+// ✅ Fixed: Use getToken() instead of localStorage
 export async function getPostsWithMedia(page: number = 1, limit: number = 50): Promise<Post[]> {
+  const token = await getToken();
+  
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(
     `${backendUrl}/posts?page=${page}&limit=${limit}`,
     {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-      },
+      headers,
+      credentials: "include",
     }
   );
 
